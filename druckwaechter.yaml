@@ -1,0 +1,249 @@
+substitutions:
+  name: druckwaechter
+  friendly_name: "Druckwächter"
+  # Diese beiden Pins an die tatsächliche Verdrahtung des CAN-Transceivers anpassen.
+  can_tx_pin: GPIO4
+  can_rx_pin: GPIO3
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  comment: "LEDA LUC2 Druckwächter CAN-Monitor"
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+
+bluetooth_proxy:
+  active: true
+
+  
+logger:
+  level: DEBUG
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: !secret wifi_password
+
+  output_power: 8.5dB
+captive_portal:
+
+
+
+  
+sensor:
+  - platform: template
+    name: "${friendly_name} Druck"
+    id: druck
+    unit_of_measurement: Pa
+    device_class: pressure
+    state_class: measurement
+    accuracy_decimals: 1
+    update_interval: never
+    filters: 
+      - exponential_moving_average:
+          alpha: 0.01
+          send_every: 30
+
+            
+
+  - platform: template
+    name: "${friendly_name} Temperatur"
+    id: temperatur
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: never
+    filters: 
+      - exponential_moving_average:
+          alpha: 0.01
+          send_every: 30    
+
+  - platform: template
+    name: "${friendly_name} Offsetdruck"
+    id: offsetdruck
+    unit_of_measurement: Pa
+    entity_category: "diagnostic"
+    state_class: measurement
+    device_class: pressure
+    update_interval: never
+    filters:
+      - throttle: 300s
+
+  - platform: template
+    name: "${friendly_name} Nullabgleichdruck"
+    id: nullabgleichdruck
+    unit_of_measurement: Pa
+    entity_category: "diagnostic"
+    state_class: measurement
+    device_class: pressure
+    update_interval: never
+    filters:
+      - throttle: 300s
+
+  - platform: template
+    name: "${friendly_name} 400gradGrenze"
+    id: v400gg
+    entity_category: "diagnostic"
+    state_class: measurement
+    update_interval: never
+    filters:
+      - throttle: 600s
+
+  - platform: template
+    name: "${friendly_name} Zeitinaktiv"
+    id: zeitinaktiv
+    unit_of_measurement: min
+    entity_category: "diagnostic"
+    state_class: measurement
+    update_interval: never
+    filters:
+      - throttle: 3s
+    on_value:
+      - then:
+          - if:
+              condition:
+                switch.is_on: switch_lueftungaus
+              then:
+                - if:
+                    condition:
+                      sensor.in_range:
+                        below: 1
+                        id: zeitinaktiv
+                    then:
+                      - canbus.send:
+                          canbus_id: luc2_can
+                          data: [0x82, 0x00]
+
+    
+    
+
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+
+binary_sensor:
+  - platform: template
+    name: "${friendly_name} Lueftung aktiv"
+    id: lueftungaktiv
+  - platform: status
+    name: Status Binary Sensor
+    id: binary_sensor_status_1
+
+    
+canbus:
+  - platform: esp32_can
+    id: luc2_can
+    tx_pin: ${can_tx_pin}
+    rx_pin: ${can_rx_pin}
+
+    # Laut den Messungen: 125 kBit/s.
+    bit_rate: 125kbps
+
+    # Der ESP32 soll den bestehenden CAN-Bus nur mithören
+    # und keine ACKs erzeugen.
+    mode: NORMAL
+
+    rx_queue_len: 32
+
+    # Standard-CAN-ID 0x28A.
+    can_id: 0x28A
+    use_extended_id: false
+
+    on_frame:
+      - can_id: 0x28A
+        use_extended_id: false
+        then:
+          - lambda: |-
+              // Die originale Python-Auswertung ignoriert Byte 0
+              // und übernimmt Bytes 1..6 jedes CAN-Frames.
+              //
+              // Frame-Kennung:
+              //   0x55 -> Teil 0
+              //   0x00 -> Teil 1
+              //   0x01 -> Teil 2
+              //   0x09 -> Teil 3 / Ende
+              //
+              // Die vier Teilframes ergeben 24 Bytes Nutzdaten.
+              //ESP_LOGI("druckwaechter", "CAN: %u bytes empfangen", x.size());
+              int16_t druck_wert = 0;
+              int16_t temp_wert = 0;
+              int16_t offsetdruck_wert = 0;
+              float druck_f  = 0;
+              
+              switch (x[0]) {
+                case 0x55:
+                  // Im initialen frame steht nix interessantes drin
+                  
+                  break;
+                case 0x00:
+                // im zweiten frame stehen sachen drin. 
+                  if(x[2] == 0){
+                    druck_wert = x[1] * -1;
+                  } else {
+                    druck_wert = ((x[2] - 128) * 256) + x[1];
+                  }
+                  druck_f = druck_wert / 10;
+                  id(druck).publish_state(druck_f);
+                  temp_wert = x[3] + (x[4] << 8);
+                  id(temperatur).publish_state(temp_wert);
+                  
+                  
+                  break;
+                case 0x01:
+                //Frame 3: ist auch interessant. 
+                  offsetdruck_wert = x[1] + (x[2] << 8);
+                  id(offsetdruck).publish_state(offsetdruck_wert);
+                  id(nullabgleichdruck).publish_state(x[3]);
+                  id(v400gg).publish_state(x[4]);
+                  id(zeitinaktiv).publish_state(x[6]);
+                  if(x[5] == 0){
+                    id(lueftungaktiv).publish_state(false);
+                  } else {
+                    id(lueftungaktiv).publish_state(true);
+                  }
+                  
+                  break;
+                case 0x09:
+                default:
+                  break;
+                //return;
+              }
+
+
+
+output:
+  - platform: gpio
+    id: output_gpio_1
+    pin: GPIO1
+    inverted: false
+switch:
+  - platform: template
+    name: Lueftung_aus
+    id: switch_lueftungaus
+    icon: "mdi:fan-auto"
+    restore_mode: ALWAYS_OFF
+    optimistic: true
+    turn_off_action:
+      - canbus.send:
+          canbus_id: luc2_can
+          data: [0x08]
+    turn_on_action:
+      - canbus.send:
+          canbus_id: luc2_can
+          data: [0x82, 0x00]
+
+status_led:
+  pin: GPIO8
+
