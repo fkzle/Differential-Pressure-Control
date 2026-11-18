@@ -1,5 +1,5 @@
 # Differential-Pressure-Control
-Hacking the communication of LEDA LUC2 
+Communication of LEDA LUC2 
 
 
 The LEDA LUC2 is a differential pressure watch safety device (according to its manual). 
@@ -46,7 +46,7 @@ Bytes 2–7 contain 6 databytes.
 Byte 8 is for flow control and marks the end of the sequence. 
 
 
-## CAN-message 1 – Multiplexor `0x55`
+## CAN message 1 – Multiplexor `0x55`
 
 | Byte | Signal | description |
 |---:|---|---|
@@ -59,7 +59,7 @@ Byte 8 is for flow control and marks the end of the sequence.
 | 7 | databyte 6 | always 0x06 |
 | 8 | flow control byte | 0x0D for "message following" |
 
-## CAN-message 2 – Multiplexor `0x00`
+## CAN message 2 – Multiplexor `0x00`
 
 | Byte | Signal | description |
 |---:|---|---|
@@ -72,7 +72,7 @@ Byte 8 is for flow control and marks the end of the sequence.
 | 7 | Reserve | always 0x00 |
 | 8 | flow control byte | 0x0D for "message following" |
 
-## CAN-Botschaft 3 – Multiplexor `0x01`
+## CAN message 3 – Multiplexor `0x01`
 
 | Byte | Signal | description |
 |---:|---|---|
@@ -85,7 +85,7 @@ Byte 8 is for flow control and marks the end of the sequence.
 | 7 | inactive time | if ventilation is switched off from the menu, the remaining time (in min) until it is activated again is sent here |
 | 8 | flow control byte | 0x0D for "message following" |
 
-## CAN-Botschaft 4 – Multiplexor `0x09`
+## CAN message 4 – Multiplexor `0x09`
 
 | Byte | Signal | description |
 |---:|---|---|
@@ -102,7 +102,7 @@ Byte 8 is for flow control and marks the end of the sequence.
 
 Message 1 is only sent if the ventilation system is active. This is missing if the ventilation is set to "inactive". 
 
-| Multiplexor | CAN-Botschaft | Inhalt |
+| Multiplexor | CAN message | contains |
 |---|---|---|
 | `0x55` | 1 | ventilation active message |
 | `0x00` | 2 | pressure and temperature - fast changing values |
@@ -113,7 +113,7 @@ Message 1 is only sent if the ventilation system is active. This is missing if t
 ## Switching the ventilation on and off
 
 ### off
-Using the same CAN-ID (28A) and sending a Message with the first 2 bytes only, containing [0x82, 0x00] switches the ventilation of for the configured time. 
+Using the same CAN-ID (28A) and sending a Message with the first 2 bytes only, containing [0x82, 0x00] (length = 2) switches the ventilation of for the configured time. 
 
 ### on
 sending a can message on CAN-ID (28A) with the first byte only set to [0x08] (length = 1) reactivates the ventilation. 
